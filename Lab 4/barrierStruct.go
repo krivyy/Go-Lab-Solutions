@@ -33,21 +33,22 @@ import (
 
 // Create a barrier data type
 type barrier struct {
-	theChan chan bool
-	theLock sync.Mutex
-	total   int
-	count   int
+	theChan  chan bool
+	theChan2 chan bool
+	theLock  sync.Mutex
+	total    int
+	count    int
 }
 
 // creates a properly initialised barrier
 // N== number of threads (go Routines)
-func createBarrier(N int) barrier {
-	theBarrier := barrier{
-		theChan: make(chan bool),
-		total:   N,
-		count:   0,
+func createBarrier(N int) *barrier {
+	return &barrier{
+		theChan:  make(chan bool, N),
+		theChan2: make(chan bool, N),
+		total:    N,
+		count:    0,
 	}
-	return theBarrier
 }
 
 // Method belonging to barrier data type
@@ -56,26 +57,31 @@ func (b *barrier) wait() {
 	b.theLock.Lock()
 	b.count++
 	if b.count == b.total {
-		b.theLock.Unlock()
-		fmt.Println("here")
-		for _ = range b.total - 1 {
-			<-b.theChan
+		for range b.total {
+			b.theChan <- true
 		}
-	} else {
-		fmt.Println(b.count)
-		b.theLock.Unlock()
-		b.theChan <- true
 	}
-} //wait
+	b.theLock.Unlock()
+	<-b.theChan
+	b.theLock.Lock()
+	b.count--
+	if b.count == 0 {
+		for range b.total {
+			b.theChan2 <- true
+		}
+	}
+	b.theLock.Unlock()
+	<-b.theChan2
+}
 
 func WorkWithRendezvous(wg *sync.WaitGroup, Num int, theBarrier *barrier) bool {
-	var X time.Duration
-	X = time.Duration(rand.IntN(5))
-	time.Sleep(X * time.Second) //wait random time amount
-	fmt.Println("Part A", Num)
-	//Rendezvous here
-	theBarrier.wait()
-	fmt.Println("PartB", Num)
+	for round := 0; round < 3; round++ {
+		X := time.Duration(rand.IntN(5))
+		time.Sleep(X * time.Second)
+		fmt.Println("Part A", Num)
+		theBarrier.wait()
+		fmt.Println("PartB", Num)
+	}
 	wg.Done()
 	return true
 }
@@ -84,10 +90,9 @@ func main() {
 	var wg sync.WaitGroup
 	barrier := createBarrier(5)
 	threadCount := 5
-
 	wg.Add(threadCount)
 	for N := range threadCount {
-		go WorkWithRendezvous(&wg, N, &barrier)
+		go WorkWithRendezvous(&wg, N, barrier)
 	}
 	wg.Wait() //wait here until everyone (5 go routines) is done
 
